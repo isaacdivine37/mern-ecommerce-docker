@@ -1,0 +1,41 @@
+trigger:
+  - main
+
+pool:
+  name: 'Default'   # replace 'Default' with the exact name of your agent pool
+
+variables:
+  NODE_VERSION: '18.x'
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: '$(NODE_VERSION)'
+
+  # Build Backend
+  - script: |
+      cd backend
+      npm install
+      npm run build || echo "No build step for backend"
+    displayName: 'Build Backend'
+
+  # Build Frontend
+  - script: |
+      cd frontend
+      npm install
+      npm run build
+    displayName: 'Build Frontend'
+
+  # Deploy Backend
+  - task: AzureWebApp@1
+    inputs:
+      azureSubscription: 'mern-ecommerce application'
+      appName: 'mern-ecommerce-backend'
+      package: '$(System.DefaultWorkingDirectory)/backend'
+
+  # Deploy Frontend
+  - task: AzureWebApp@1
+    inputs:
+      azureSubscription: 'mern-ecommerce application'
+      appName: 'mern-ecommerce-frontend'
+      package: '$(System.DefaultWorkingDirectory)/frontend/build'
