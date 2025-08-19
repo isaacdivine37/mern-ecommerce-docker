@@ -18,79 +18,94 @@ steps:
       versionSpec: $(NODE_VERSION)
     displayName: "Use Node.js $(NODE_VERSION)"
 
-  - script: node --version && npm --version
+  - script: |
+      node --version
+      npm --version
     displayName: "Check Node.js and npm versions"
 
-  # Debug: Check directory structure
-  - script: |
-      echo "=== Repository Structure Debug ==="
-      echo "Current directory: $(pwd)"
-      echo ""
-      echo "Root directory contents:"
-      ls -la
-      echo ""
-      echo "Looking for package.json files:"
-      find . -name "package.json" -type f
-      echo ""
-      echo "Directory structure:"
-      tree -L 2 || find . -type d -maxdepth 2
+  # Debug: Check directory structure using PowerShell
+  - task: PowerShell@2
+    inputs:
+      targetType: 'inline'
+      script: |
+        Write-Host "=== Repository Structure Debug ==="
+        Write-Host "Current directory: $(Get-Location)"
+        Write-Host ""
+        Write-Host "Root directory contents:"
+        Get-ChildItem | Format-Table Name, Mode, Length, LastWriteTime
+        Write-Host ""
+        Write-Host "Looking for package.json files:"
+        Get-ChildItem -Recurse -Name "package.json"
+        Write-Host ""
+        Write-Host "Checking for common folder structures:"
+        $folders = @("server", "backend", "api", "client", "frontend", "web", "app")
+        foreach ($folder in $folders) {
+            if (Test-Path $folder) {
+                Write-Host "✓ Found: $folder"
+            } else {
+                Write-Host "✗ Not found: $folder"
+            }
+        }
     displayName: "Debug: Repository Structure"
 
-  # Set dynamic variables based on actual structure
-  - script: |
-      # Check for backend directory
-      if [ -d "server" ]; then
-        echo "##vso[task.setvariable variable=BACKEND_DIR]server"
-      elif [ -d "backend" ]; then
-        echo "##vso[task.setvariable variable=BACKEND_DIR]backend"
-      elif [ -d "api" ]; then
-        echo "##vso[task.setvariable variable=BACKEND_DIR]api"
-      elif [ -f "package.json" ] && grep -q "express\|fastify\|koa" package.json; then
-        echo "##vso[task.setvariable variable=BACKEND_DIR]."
-      else
-        echo "##vso[task.setvariable variable=BACKEND_DIR]NOT_FOUND"
-      fi
+  # Detect project structure using PowerShell
+  - task: PowerShell@2
+    inputs:
+      targetType: 'inline'
+      script: |
+        # Check for backend directory
+        $backendDir = "NOT_FOUND"
+        if (Test-Path "server") {
+            $backendDir = "server"
+        } elseif (Test-Path "backend") {
+            $backendDir = "backend"
+        } elseif (Test-Path "api") {
+            $backendDir = "api"
+        } elseif (Test-Path "package.json") {
+            $backendDir = "."
+        }
+        Write-Host "##vso[task.setvariable variable=BACKEND_DIR]$backendDir"
+        Write-Host "Backend directory set to: $backendDir"
 
-      # Check for frontend directory
-      if [ -d "client" ]; then
-        echo "##vso[task.setvariable variable=FRONTEND_DIR]client"
-      elif [ -d "frontend" ]; then
-        echo "##vso[task.setvariable variable=FRONTEND_DIR]frontend"
-      elif [ -d "web" ]; then
-        echo "##vso[task.setvariable variable=FRONTEND_DIR]web"
-      elif [ -d "app" ]; then
-        echo "##vso[task.setvariable variable=FRONTEND_DIR]app"
-      else
-        echo "##vso[task.setvariable variable=FRONTEND_DIR]NOT_FOUND"
-      fi
+        # Check for frontend directory
+        $frontendDir = "NOT_FOUND"
+        if (Test-Path "client") {
+            $frontendDir = "client"
+        } elseif (Test-Path "frontend") {
+            $frontendDir = "frontend"
+        } elseif (Test-Path "web") {
+            $frontendDir = "web"
+        } elseif (Test-Path "app") {
+            $frontendDir = "app"
+        }
+        Write-Host "##vso[task.setvariable variable=FRONTEND_DIR]$frontendDir"
+        Write-Host "Frontend directory set to: $frontendDir"
     displayName: "Detect Project Structure"
 
   # Install backend dependencies
   - script: |
-      if [ "$(BACKEND_DIR)" != "NOT_FOUND" ]; then
-        echo "Installing backend dependencies in: $(BACKEND_DIR)"
-        cd $(BACKEND_DIR)
-        npm install
-        echo "Backend dependencies installed successfully"
-      else
-        echo "##vso[task.logissue type=error]Backend directory not found!"
-        exit 1
-      fi
+      if "$(BACKEND_DIR)" == "NOT_FOUND" (
+        echo Backend directory not found!
+        exit /b 1
+      )
+      echo Installing backend dependencies in: $(BACKEND_DIR)
+      cd $(BACKEND_DIR)
+      npm install
     displayName: "Install Backend Dependencies"
+    condition: ne(variables['BACKEND_DIR'], 'NOT_FOUND')
 
-  # Install frontend dependencies and build
+  # Build frontend
   - script: |
-      if [ "$(FRONTEND_DIR)" != "NOT_FOUND" ]; then
-        echo "Building frontend in: $(FRONTEND_DIR)"
-        cd $(FRONTEND_DIR)
-        npm install
-        npm run build
-        echo "Frontend built successfully"
-      else
-        echo "##vso[task.logissue type=error]Frontend directory not found!"
-        exit 1
-      fi
+      if "$(FRONTEND_DIR)" == "NOT_FOUND" (
+        echo Frontend directory not found!
+        exit /b 1
+      )
+      echo Building frontend in: $(FRONTEND_DIR)
+      cd $(FRONTEND_DIR)
+      npm install
+      npm run build
     displayName: "Build Frontend"
+    condition: ne(variables['FRONTEND_DIR'], 'NOT_FOUND')
 
   # Package backend
   - task: ArchiveFiles@2
@@ -103,7 +118,7 @@ steps:
     displayName: "Package Backend"
     condition: ne(variables['BACKEND_DIR'], 'NOT_FOUND')
 
-  # Package frontend
+  # Package frontend build
   - task: ArchiveFiles@2
     inputs:
       rootFolderOrFile: '$(FRONTEND_DIR)/build'
