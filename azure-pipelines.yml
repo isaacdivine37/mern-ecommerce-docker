@@ -39,3 +39,76 @@ steps:
       azureSubscription: 'mern-ecommerce application'
       appName: 'mern-ecommerce-frontend'
       package: '$(System.DefaultWorkingDirectory)/frontend/build'
+trigger:
+  - main   # Adjust branch name if different
+
+pool:
+  name: 'mazi'   # ✅ your custom agent pool
+
+variables:
+  NODE_VERSION: '18.x'
+  BACKEND_PATH: 'server'
+  FRONTEND_PATH: 'client'
+
+stages:
+  # ===== Backend Deployment =====
+  - stage: Backend
+    displayName: "Deploy Backend (Express)"
+    jobs:
+      - job: Build_And_Deploy_Backend
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: $(NODE_VERSION)
+            displayName: "Install Node.js"
+
+          - script: |
+              cd $(BACKEND_PATH)
+              npm install
+            displayName: "Install backend dependencies"
+
+          - script: |
+              cd $(BACKEND_PATH)
+              npm run build || echo "No backend build step, skipping..."
+            displayName: "Build backend (if build script exists)"
+
+          - task: ArchiveFiles@2
+            inputs:
+              rootFolderOrFile: '$(BACKEND_PATH)'
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: '$(Build.ArtifactStagingDirectory)/backend.zip'
+            displayName: "Archive backend files"
+
+          - task: AzureWebApp@1
+            inputs:
+              azureSubscription: 'mern-ecommerce application'
+              appName: 'mern-ecommerce-backend'
+              package: '$(Build.ArtifactStagingDirectory)/backend.zip'
+            displayName: "Deploy backend to Azure Web App"
+
+  # ===== Frontend Deployment =====
+  - stage: Frontend
+    displayName: "Deploy Frontend (React)"
+    dependsOn: Backend
+    jobs:
+      - job: Build_And_Deploy_Frontend
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: $(NODE_VERSION)
+            displayName: "Install Node.js"
+
+          - script: |
+              cd $(FRONTEND_PATH)
+              npm install
+              npm run build
+            displayName: "Build frontend"
+
+          - task: AzureStaticWebApp@0
+            inputs:
+              app_location: $(FRONTEND_PATH)
+              api_location: ""
+              output_location: build
+              azure_static_web_apps_api_token: $(AZURE_STATIC_WEB_APPS_API_TOKEN)
+            displayName: "Deploy frontend to Azure Static Web App"
